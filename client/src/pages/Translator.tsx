@@ -10,25 +10,50 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Mic, Globe, RefreshCw, Volume2, Copy, ArrowRightLeft } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Mic, Globe, RefreshCw, Volume2, Copy, ArrowRightLeft, Radio, PlayCircle } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
 import soundWaveBg from "@assets/generated_images/abstract_neon_sound_waves_on_dark_background.png";
 
-// Mock translation logic for prototype
-const TRANSLATION_MOCK: Record<string, Record<string, string>> = {
-  "hello": { es: "Hola", fr: "Bonjour", de: "Hallo", ja: "こんにちは" },
-  "how are you": { es: "¿Cómo estás?", fr: "Comment allez-vous?", de: "Wie geht es dir?", ja: "お元気ですか" },
-  "thank you": { es: "Gracias", fr: "Merci", de: "Danke", ja: "ありがとう" },
-  "good morning": { es: "Buenos días", fr: "Bonjour", de: "Guten Morgen", ja: "おはようございます" },
-};
-
+// Comprehensive Mock Translation Logic
+// In a real app, this would use Google Translate API or similar
 const LANGUAGES = [
+  { code: "af-ZA", name: "Afrikaans", flag: "🇿🇦" },
+  { code: "ar-SA", name: "Arabic", flag: "🇸🇦" },
+  { code: "bg-BG", name: "Bulgarian", flag: "🇧🇬" },
+  { code: "ca-ES", name: "Catalan", flag: "🇪🇸" },
+  { code: "zh-CN", name: "Chinese (Simplified)", flag: "🇨🇳" },
+  { code: "zh-TW", name: "Chinese (Traditional)", flag: "🇹🇼" },
+  { code: "cs-CZ", name: "Czech", flag: "🇨🇿" },
+  { code: "da-DK", name: "Danish", flag: "🇩🇰" },
+  { code: "nl-NL", name: "Dutch", flag: "🇳🇱" },
   { code: "en-US", name: "English", flag: "🇺🇸" },
-  { code: "es-ES", name: "Spanish", flag: "🇪🇸" },
+  { code: "fi-FI", name: "Finnish", flag: "🇫🇮" },
   { code: "fr-FR", name: "French", flag: "🇫🇷" },
   { code: "de-DE", name: "German", flag: "🇩🇪" },
+  { code: "el-GR", name: "Greek", flag: "🇬🇷" },
+  { code: "he-IL", name: "Hebrew", flag: "🇮🇱" },
+  { code: "hi-IN", name: "Hindi", flag: "🇮🇳" },
+  { code: "hu-HU", name: "Hungarian", flag: "🇭🇺" },
+  { code: "id-ID", name: "Indonesian", flag: "🇮🇩" },
+  { code: "it-IT", name: "Italian", flag: "🇮🇹" },
   { code: "ja-JP", name: "Japanese", flag: "🇯🇵" },
+  { code: "ko-KR", name: "Korean", flag: "🇰🇷" },
+  { code: "ms-MY", name: "Malay", flag: "🇲🇾" },
+  { code: "no-NO", name: "Norwegian", flag: "🇳🇴" },
+  { code: "pl-PL", name: "Polish", flag: "🇵🇱" },
+  { code: "pt-PT", name: "Portuguese", flag: "🇵🇹" },
+  { code: "ro-RO", name: "Romanian", flag: "🇷🇴" },
+  { code: "ru-RU", name: "Russian", flag: "🇷🇺" },
+  { code: "sr-RS", name: "Serbian", flag: "🇷🇸" },
+  { code: "sk-SK", name: "Slovak", flag: "🇸🇰" },
+  { code: "es-ES", name: "Spanish", flag: "🇪🇸" },
+  { code: "sv-SE", name: "Swedish", flag: "🇸🇪" },
+  { code: "th-TH", name: "Thai", flag: "🇹🇭" },
+  { code: "tr-TR", name: "Turkish", flag: "🇹🇷" },
+  { code: "uk-UA", name: "Ukrainian", flag: "🇺🇦" },
+  { code: "vi-VN", name: "Vietnamese", flag: "🇻🇳" },
 ];
 
 export default function Translator() {
@@ -36,34 +61,68 @@ export default function Translator() {
   const [sourceText, setSourceText] = useState("");
   const [translatedText, setTranslatedText] = useState("");
   const [sourceLang, setSourceLang] = useState("en-US");
-  const [targetLang, setTargetLang] = useState("es-ES");
+  const [targetLang, setTargetLang] = useState("ru-RU"); // Default to user request
   
+  // New features
+  const [autoSpeak, setAutoSpeak] = useState(true);
+  const [continuousMode, setContinuousMode] = useState(false);
+
   const speechManager = useRef(new SpeechManager());
   const { toast } = useToast();
 
   useEffect(() => {
-    // Basic translation simulation
+    // Update continuous mode setting
+    speechManager.current.setContinuous(continuousMode);
+  }, [continuousMode]);
+
+  useEffect(() => {
     if (!sourceText) {
       setTranslatedText("");
       return;
     }
 
     const timer = setTimeout(() => {
+      // Mock Translation Logic
+      // In a real app, this is where the API call happens
+      
+      // Determine a "mock" translation based on language
+      // This is purely for prototype visualization
+      const targetLangObj = LANGUAGES.find(l => l.code === targetLang);
+      const prefix = targetLangObj ? `[${targetLangObj.name}] ` : "";
+      
+      // Simulate "translation" by reversing or modifying text if it's not a known phrase
+      // This is just so the user sees *change*
+      let mockTranslation = "";
+      
+      const commonPhrases: Record<string, string> = {
+        "hello": "Privet (Привет)",
+        "how are you": "Kak dela (Как дела)",
+        "thank you": "Spasibo (Спасибо)",
+        "good morning": "Dobroye utro (Доброе утро)",
+        "i love music": "Ya lyublyu muzyku (Я люблю музыку)",
+        "playing a song": "Igryvaya pesnyu (Играя песню)",
+      };
+
       const lowerText = sourceText.toLowerCase().trim();
-      // Try to find exact match mock
-      let mockTranslation = TRANSLATION_MOCK[lowerText]?.[targetLang.split("-")[0]];
       
-      if (!mockTranslation) {
-        // Fallback simulation: Just show it's translated visually
-        // In a real app, this would call an API
-        mockTranslation = `[Translated to ${LANGUAGES.find(l => l.code === targetLang)?.name}]: ${sourceText}`;
+      if (targetLang.startsWith("ru") && commonPhrases[lowerText]) {
+         mockTranslation = commonPhrases[lowerText];
+      } else {
+         // Generic fallback for prototype
+         mockTranslation = `${prefix} ${sourceText}`; 
       }
-      
+
       setTranslatedText(mockTranslation);
-    }, 600); // Simulate network delay
+
+      // Auto Speak Feature
+      if (autoSpeak && mockTranslation) {
+        // Debounce speech slightly so it doesn't overlap too much in continuous mode
+        speechManager.current.speak(mockTranslation, targetLang);
+      }
+    }, 800);
 
     return () => clearTimeout(timer);
-  }, [sourceText, targetLang]);
+  }, [sourceText, targetLang, autoSpeak]);
 
   const toggleListening = () => {
     if (isListening) {
@@ -71,15 +130,27 @@ export default function Translator() {
       setIsListening(false);
     } else {
       setIsListening(true);
-      setSourceText(""); // Clear previous on new recording
+      if (!continuousMode) {
+        setSourceText(""); // Clear only if not continuous? Or always clear on new session?
+      }
+      
       speechManager.current.start(
         (text, isFinal) => {
-          setSourceText(text);
-          if (isFinal) {
+          if (continuousMode) {
+             // In continuous mode, we might append or just show the latest phrase
+             // For a translator, usually showing the latest phrase is better
+             setSourceText(text);
+          } else {
+             setSourceText(text);
+          }
+          
+          if (isFinal && !continuousMode) {
             setIsListening(false);
           }
         },
-        () => setIsListening(false),
+        () => {
+           if (!continuousMode) setIsListening(false);
+        },
         (err) => {
           console.error(err);
           setIsListening(false);
@@ -106,7 +177,7 @@ export default function Translator() {
   };
 
   return (
-    <div className="min-h-screen relative overflow-hidden flex flex-col items-center justify-start pt-8 pb-20 px-4 md:px-0 bg-background text-foreground font-sans">
+    <div className="min-h-screen relative overflow-hidden flex flex-col items-center justify-start pt-8 pb-24 px-4 md:px-0 bg-background text-foreground font-sans">
       {/* Background Asset */}
       <div className="absolute inset-0 z-0 opacity-40 pointer-events-none">
         <img src={soundWaveBg} alt="Background" className="w-full h-full object-cover" />
@@ -124,10 +195,27 @@ export default function Translator() {
               LinguaFlow
             </h1>
           </div>
-          <Button variant="ghost" size="icon" className="rounded-full hover:bg-white/10">
-            <RefreshCw className="w-5 h-5 opacity-70" onClick={() => { setSourceText(""); setTranslatedText(""); }} />
-          </Button>
+          <div className="flex items-center gap-2">
+             <Button variant="ghost" size="icon" className="rounded-full hover:bg-white/10" onClick={() => { setSourceText(""); setTranslatedText(""); }}>
+              <RefreshCw className="w-5 h-5 opacity-70" />
+            </Button>
+          </div>
         </header>
+
+        {/* Settings Bar */}
+        <div className="flex items-center justify-between px-4 py-2 bg-white/5 backdrop-blur-md rounded-xl border border-white/10">
+          <div className="flex items-center gap-2">
+            <Radio className={`w-4 h-4 ${continuousMode ? "text-accent" : "text-muted-foreground"}`} />
+            <span className="text-xs font-medium text-muted-foreground">Continuous</span>
+            <Switch checked={continuousMode} onCheckedChange={setContinuousMode} className="scale-75" />
+          </div>
+          <div className="w-px h-4 bg-white/10" />
+          <div className="flex items-center gap-2">
+            <Volume2 className={`w-4 h-4 ${autoSpeak ? "text-accent" : "text-muted-foreground"}`} />
+            <span className="text-xs font-medium text-muted-foreground">Auto-Speak</span>
+            <Switch checked={autoSpeak} onCheckedChange={setAutoSpeak} className="scale-75" />
+          </div>
+        </div>
 
         {/* Language Selection Bar */}
         <Card className="glass-card p-2 rounded-2xl flex items-center justify-between gap-2">
@@ -135,7 +223,7 @@ export default function Translator() {
             <SelectTrigger className="w-[140px] bg-transparent border-0 focus:ring-0 text-base font-medium">
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="max-h-[300px]">
               {LANGUAGES.map((lang) => (
                 <SelectItem key={lang.code} value={lang.code}>
                   <span className="mr-2">{lang.flag}</span> {lang.name}
@@ -157,7 +245,7 @@ export default function Translator() {
             <SelectTrigger className="w-[140px] bg-transparent border-0 focus:ring-0 text-base font-medium text-right justify-end">
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="max-h-[300px]">
               {LANGUAGES.map((lang) => (
                 <SelectItem key={lang.code} value={lang.code}>
                   <span className="mr-2">{lang.flag}</span> {lang.name}
@@ -175,12 +263,17 @@ export default function Translator() {
             animate={{ opacity: 1, y: 0 }}
             className="relative"
           >
-            <Card className="glass-card min-h-[160px] p-6 rounded-3xl border-l-4 border-l-primary/50 flex flex-col">
+            <Card className="glass-card min-h-[160px] p-6 rounded-3xl border-l-4 border-l-primary/50 flex flex-col transition-all duration-300">
               <div className="flex-1">
                 {sourceText ? (
                   <p className="text-2xl font-medium leading-relaxed">{sourceText}</p>
                 ) : (
-                  <p className="text-xl text-muted-foreground/50 italic">Tap microphone to speak...</p>
+                  <div className="flex flex-col items-center justify-center h-full text-center opacity-40">
+                    <p className="text-xl italic mb-2">
+                       {continuousMode ? "Listening for audio..." : "Tap mic to speak..."}
+                    </p>
+                    {continuousMode && <div className="animate-pulse text-xs uppercase tracking-widest text-accent">Live Mode Active</div>}
+                  </div>
                 )}
               </div>
               <div className="flex justify-between items-center mt-4 pt-4 border-t border-white/5">
@@ -226,7 +319,7 @@ export default function Translator() {
         </div>
 
         {/* Controls Area */}
-        <div className="mt-auto pt-8 flex flex-col items-center justify-center gap-6">
+        <div className="mt-auto pt-4 flex flex-col items-center justify-center gap-6">
            {/* Visualizer */}
           <div className="h-12 w-full flex items-center justify-center">
              <SpeechVisualizer isListening={isListening} />
@@ -247,11 +340,18 @@ export default function Translator() {
             onClick={toggleListening}
             data-testid="button-mic"
           >
-            <Mic className={`w-10 h-10 ${isListening ? 'animate-pulse' : ''}`} />
+            {isListening && continuousMode ? (
+              <div className="flex flex-col items-center">
+                 <div className="w-3 h-3 bg-white rounded-sm animate-pulse mb-1" />
+                 <span className="text-[10px] font-bold tracking-wider uppercase">Live</span>
+              </div>
+            ) : (
+              <Mic className={`w-10 h-10 ${isListening ? 'animate-pulse' : ''}`} />
+            )}
           </motion.button>
           
           <p className="text-sm font-medium text-muted-foreground">
-            {isListening ? "Listening..." : "Tap to Speak"}
+            {isListening ? (continuousMode ? "Listening continuously..." : "Listening...") : "Tap to Speak"}
           </p>
         </div>
       </div>
