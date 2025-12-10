@@ -1,6 +1,8 @@
-// Simple wrapper for Web Speech API
+// Simple wrapper for Web Speech API (web) and Capacitor plugin (native)
 // Handles browser differences and provides a clean interface
 
+import { Capacitor, type PluginListenerHandle } from "@capacitor/core";
+import { SpeechRecognition as NativeSpeech } from "@capacitor-community/speech-recognition";
 import { hasElevenLabsKey, elevenSpeak } from "./tts";
 
 export type SpeechState = 'idle' | 'listening' | 'processing' | 'error';
@@ -12,9 +14,11 @@ export class SpeechManager {
   currentLang: string = 'en-US';
   voices: SpeechSynthesisVoice[] = [];
   voicesWarmed: boolean = false;
+  nativeListeners: PluginListenerHandle[] = [];
+  usingNative: boolean = false;
   
   constructor() {
-    if (typeof window !== 'undefined') {
+    if (typeof window !== 'undefined' && !Capacitor.isNativePlatform()) {
       if ('webkitSpeechRecognition' in window) {
         // @ts-ignore
         this.recognition = new window.webkitSpeechRecognition();
@@ -33,6 +37,7 @@ export class SpeechManager {
         this.warmVoices();
       }
     }
+    this.usingNative = Capacitor.isNativePlatform();
   }
 
   setContinuous(enabled: boolean) {
@@ -54,6 +59,11 @@ export class SpeechManager {
     onEnd: () => void,
     onError: (error: any) => void
   ) {
+    if (this.usingNative) {
+      this.startNative(onResult, onEnd, onError);
+      return;
+    }
+
     if (!this.recognition) {
       onError('Speech recognition not supported in this browser');
       return;
@@ -108,9 +118,84 @@ export class SpeechManager {
 
   stop() {
     this.shouldStop = true;
-    if (this.recognition) {
+    if (this.usingNative) {
+      this.stopNative();
+    } else if (this.recognition) {
       this.recognition.stop();
     }
+  }
+
+  private async startNative(
+    onResult: (text: string, isFinal: boolean) => void,
+    onEnd: () => void,
+    onError: (error: any) => void
+  ) {
+    try {
+      const available = await NativeSpeech.available();
+      if (!available || !available.available) {
+        onError("Speech recognition not available on this device");
+        return;
+      }
+
+      const permission = await NativeSpeech.checkPermissions();
+      if (permission.speechRecognition !== "granted") {
+        const requested = await NativeSpeech.requestPermissions();
+        if (requested.speechRecognition !== "granted") {
+          onError("Microphone/Speech permission denied");
+          return;
+        }
+      }
+
+      // Clean up old listeners
+      for (const l of this.nativeListeners) {
+        await l.remove();
+      }
+      this.nativeListeners = [];
+
+      this.shouldStop = false;
+
+      const partialListener = await NativeSpeech.addListener("partialResult", (event: any) => {
+        const text = Array.isArray(event.matches) ? event.matches.join(" ") : event.value || "";
+        if (!text) return;
+        onResult(text, false);
+      });
+
+      const resultListener = await NativeSpeech.addListener("result", (event: any) => {
+        const text = Array.isArray(event.matches) ? event.matches.join(" ") : event.value || "";
+        if (!text) return;
+        onResult(text, true);
+        if (!this.continuous) {
+          this.stopNative();
+          onEnd();
+        }
+      });
+
+      this.nativeListeners.push(partialListener, resultListener);
+
+      await NativeSpeech.start({
+        language: this.currentLang,
+        partialResults: true,
+        popup: false,
+      });
+    } catch (err) {
+      onError(err);
+    }
+  }
+
+  private async stopNative() {
+    try {
+      await NativeSpeech.stop();
+    } catch (err) {
+      // ignore
+    }
+    for (const l of this.nativeListeners) {
+      try {
+        await l.remove();
+      } catch (_e) {
+        // ignore
+      }
+    }
+    this.nativeListeners = [];
   }
 
   private warmVoices() {

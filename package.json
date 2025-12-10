@@ -16,6 +16,7 @@
     "cap:open:android": "npx cap open android"
   },
   "dependencies": {
+    "@capacitor-community/speech-recognition": "^7.0.1",
     "@capacitor/cli": "^8.0.0",
     "@capacitor/core": "^8.0.0",
     "@elevenlabs/elevenlabs-js": "^2.27.0",
