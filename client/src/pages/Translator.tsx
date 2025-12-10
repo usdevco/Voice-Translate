@@ -11,7 +11,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Mic, Globe, RefreshCw, Volume2, Copy, ArrowRightLeft, Radio, PlayCircle } from "lucide-react";
+import { Mic, Globe, RefreshCw, Volume2, Copy, ArrowRightLeft, Radio } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
 import soundWaveBg from "@assets/generated_images/abstract_neon_sound_waves_on_dark_background.png";
@@ -68,7 +68,105 @@ export default function Translator() {
   const [continuousMode, setContinuousMode] = useState(false);
 
   const speechManager = useRef(new SpeechManager());
+  const lastSpokenRef = useRef("");
+  const lastSpokenAtRef = useRef(0);
+  const translationAbortRef = useRef<AbortController | null>(null);
+  const translationRequestId = useRef(0);
   const { toast } = useToast();
+
+  const MIN_SPEAK_GAP_MS = 1500;
+  const MIN_CHARS_TO_SPEAK = 6;
+
+  const getIsoLang = (code: string) => code.split("-")[0] || code;
+
+  const mockTranslate = (text: string, target: string) => {
+    if (!text) return "";
+    const targetLangObj = LANGUAGES.find((l) => l.code === target);
+    const prefix = targetLangObj ? `[${targetLangObj.name}] ` : "";
+
+    // Tiny demo dictionary to make it feel translated
+    const commonPhrases: Record<string, Record<string, string>> = {
+      "ru": {
+        "hello": "Привет",
+        "how are you": "Как дела",
+        "thank you": "Спасибо",
+        "good morning": "Доброе утро",
+        "i love music": "Я люблю музыку",
+        "playing a song": "Играю песню",
+      },
+      "es": {
+        "hello": "Hola",
+        "how are you": "¿Cómo estás?",
+        "thank you": "Gracias",
+        "good morning": "Buenos días",
+        "i love music": "Me encanta la música",
+        "playing a song": "Reproduciendo una canción",
+      },
+      "fr": {
+        "hello": "Bonjour",
+        "how are you": "Comment ça va",
+        "thank you": "Merci",
+        "good morning": "Bonjour",
+        "i love music": "J'aime la musique",
+        "playing a song": "Lecture d'une chanson",
+      }
+    };
+
+    const lowerText = text.toLowerCase().trim();
+    const targetIso = getIsoLang(target);
+    if (commonPhrases[targetIso]?.[lowerText]) {
+      return commonPhrases[targetIso][lowerText];
+    }
+
+    // Generic fallback for prototype so it isn't identical to input
+    return `${prefix}${text.split(" ").reverse().join(" ")}`;
+  };
+
+  const translateAndMaybeSpeak = async (text: string, speakAfter: boolean) => {
+    if (!text) {
+      setTranslatedText("");
+      return;
+    }
+
+    translationAbortRef.current?.abort();
+    const controller = new AbortController();
+    translationAbortRef.current = controller;
+    const requestId = ++translationRequestId.current;
+
+    const sourceIso = getIsoLang(sourceLang);
+    const targetIso = getIsoLang(targetLang);
+    let translated = "";
+
+    try {
+      const response = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${sourceIso}|${targetIso}`, {
+        signal: controller.signal,
+        cache: "no-store",
+      });
+      const data = await response.json();
+      translated = data?.responseData?.translatedText || "";
+    } catch {
+      // Fallback to local mock if network fails or blocked
+      translated = mockTranslate(text, targetLang);
+    }
+
+    if (controller.signal.aborted || requestId !== translationRequestId.current) {
+      return;
+    }
+
+    const safeTranslation = translated || mockTranslate(text, targetLang);
+    setTranslatedText(safeTranslation);
+
+    if (speakAfter && autoSpeak) {
+      const now = Date.now();
+      const longEnough = safeTranslation.length >= MIN_CHARS_TO_SPEAK;
+      const gapOk = now - lastSpokenAtRef.current >= MIN_SPEAK_GAP_MS;
+      if (longEnough && gapOk) {
+        void speechManager.current.speak(safeTranslation, targetLang);
+        lastSpokenRef.current = safeTranslation;
+        lastSpokenAtRef.current = now;
+      }
+    }
+  };
 
   useEffect(() => {
     // Update continuous mode setting
@@ -76,64 +174,35 @@ export default function Translator() {
   }, [continuousMode]);
 
   useEffect(() => {
+    // Keep recognition language in sync with selected source language
+    speechManager.current.setLanguage(sourceLang);
+  }, [sourceLang]);
+
+  useEffect(() => {
     if (!sourceText) {
       setTranslatedText("");
+      lastSpokenRef.current = "";
       return;
     }
 
-    const timer = setTimeout(() => {
-      // Mock Translation Logic
-      // In a real app, this is where the API call happens
-      
-      // Determine a "mock" translation based on language
-      // This is purely for prototype visualization
-      const targetLangObj = LANGUAGES.find(l => l.code === targetLang);
-      const prefix = targetLangObj ? `[${targetLangObj.name}] ` : "";
-      
-      // Simulate "translation" by reversing or modifying text if it's not a known phrase
-      // This is just so the user sees *change*
-      let mockTranslation = "";
-      
-      const commonPhrases: Record<string, string> = {
-        "hello": "Privet (Привет)",
-        "how are you": "Kak dela (Как дела)",
-        "thank you": "Spasibo (Спасибо)",
-        "good morning": "Dobroye utro (Доброе утро)",
-        "i love music": "Ya lyublyu muzyku (Я люблю музыку)",
-        "playing a song": "Igryvaya pesnyu (Играя песню)",
-      };
-
-      const lowerText = sourceText.toLowerCase().trim();
-      
-      if (targetLang.startsWith("ru") && commonPhrases[lowerText]) {
-         mockTranslation = commonPhrases[lowerText];
-      } else {
-         // Generic fallback for prototype
-         mockTranslation = `${prefix} ${sourceText}`; 
-      }
-
-      setTranslatedText(mockTranslation);
-
-      // Auto Speak Feature
-      if (autoSpeak && mockTranslation) {
-        // Debounce speech slightly so it doesn't overlap too much in continuous mode
-        speechManager.current.speak(mockTranslation, targetLang);
-      }
-    }, 800);
-
-    return () => clearTimeout(timer);
-  }, [sourceText, targetLang, autoSpeak]);
+    // Re-translate if target language changes
+    translateAndMaybeSpeak(sourceText, false);
+  }, [targetLang, sourceText]);
 
   const toggleListening = () => {
     if (isListening) {
       speechManager.current.stop();
       setIsListening(false);
+      lastSpokenRef.current = "";
+      lastSpokenAtRef.current = 0;
     } else {
       setIsListening(true);
       if (!continuousMode) {
         setSourceText(""); // Clear only if not continuous? Or always clear on new session?
+        lastSpokenRef.current = "";
+        lastSpokenAtRef.current = 0;
       }
-      
+
       speechManager.current.start(
         (text, isFinal) => {
           if (continuousMode) {
@@ -143,7 +212,10 @@ export default function Translator() {
           } else {
              setSourceText(text);
           }
-          
+
+          // Only speak on finals to avoid firing on tiny pauses
+          translateAndMaybeSpeak(text, isFinal);
+
           if (isFinal && !continuousMode) {
             setIsListening(false);
           }
@@ -166,7 +238,7 @@ export default function Translator() {
 
   const handleSpeak = (text: string, lang: string) => {
     if (!text) return;
-    speechManager.current.speak(text, lang);
+    void speechManager.current.speak(text, lang);
   };
 
   const handleSwapLanguages = () => {
