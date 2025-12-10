@@ -1,4 +1,4 @@
-import { ElevenLabsClient, play } from "@elevenlabs/elevenlabs-js";
+import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js";
 
 const apiKey =
   import.meta.env.VITE_ELEVENLABS_API_KEY ||
@@ -90,6 +90,27 @@ async function playArrayBuffer(buffer: ArrayBuffer, contentType: string) {
   URL.revokeObjectURL(url);
 }
 
+async function streamToArrayBuffer(stream: ReadableStream<Uint8Array>) {
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value) {
+      chunks.push(value);
+      total += value.byteLength;
+    }
+  }
+  const merged = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return merged.buffer;
+}
+
 async function speakViaRest(text: string, lang: string) {
   const languageCode = languageCodeFor(lang);
 
@@ -152,7 +173,7 @@ async function speakViaSdk(text: string, lang: string) {
   const voiceId = voiceForLang(lang);
   const languageCode = languageCodeFor(lang);
   try {
-    const audio = await client.textToSpeech.convert(voiceId, {
+    const audioStream = await client.textToSpeech.convert(voiceId, {
       text,
       modelId: "eleven_turbo_v2_5",
       outputFormat: "mp3_44100_128",
@@ -164,12 +185,13 @@ async function speakViaSdk(text: string, lang: string) {
         useSpeakerBoost: true,
       },
     });
-    await play(audio);
+    const buffer = await streamToArrayBuffer(audioStream as unknown as ReadableStream<Uint8Array>);
+    await playArrayBuffer(buffer, "audio/mpeg");
   } catch (e1: any) {
     const msg = String(e1?.message || "");
     if (msg.includes("voice_not_found") && voiceId !== VOICE_MAP.default) {
       console.warn("Primary voice missing, retrying with default voice (SDK)");
-      const audio = await client.textToSpeech.convert(VOICE_MAP.default, {
+      const audioStream = await client.textToSpeech.convert(VOICE_MAP.default, {
         text,
         modelId: "eleven_turbo_v2_5",
         outputFormat: "mp3_44100_128",
@@ -181,12 +203,13 @@ async function speakViaSdk(text: string, lang: string) {
           useSpeakerBoost: true,
         },
       });
-      await play(audio);
+      const buffer = await streamToArrayBuffer(audioStream as unknown as ReadableStream<Uint8Array>);
+      await playArrayBuffer(buffer, "audio/mpeg");
       return;
     }
 
     console.warn("Turbo (SDK) failed, retrying multilingual v2", e1);
-    const audio = await client.textToSpeech.convert(voiceId, {
+    const audioStream = await client.textToSpeech.convert(voiceId, {
       text,
       modelId: "eleven_multilingual_v2",
       outputFormat: "mp3_44100_128",
@@ -197,7 +220,8 @@ async function speakViaSdk(text: string, lang: string) {
         useSpeakerBoost: true,
       },
     });
-    await play(audio);
+    const buffer = await streamToArrayBuffer(audioStream as unknown as ReadableStream<Uint8Array>);
+    await playArrayBuffer(buffer, "audio/mpeg");
   }
 }
 
