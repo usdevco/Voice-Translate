@@ -1,3 +1,6 @@
+import { Capacitor } from "@capacitor/core";
+import { NativeAudio } from "@capacitor-community/native-audio";
+import { Filesystem, Directory } from "@capacitor/filesystem";
 import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js";
 
 const apiKey =
@@ -67,6 +70,47 @@ function languageCodeFor(lang: string) {
 let audioCtx: AudioContext | null = null;
 
 async function playArrayBuffer(buffer: ArrayBuffer, contentType: string) {
+  // Native path for iOS to avoid WKWebView audio issues
+  if (Capacitor.isNativePlatform()) {
+    try {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      }
+      const decoded = await audioCtx.decodeAudioData(buffer.slice(0));
+      const durationMs = decoded.duration * 1000 + 500;
+
+      const base64 = arrayBufferToBase64(buffer);
+      const assetId = `tts-${Date.now()}`;
+      const fileName = `${assetId}.mp3`;
+      await Filesystem.writeFile({
+        path: fileName,
+        data: base64,
+        directory: Directory.Cache,
+      });
+      const uriResult = await Filesystem.getUri({
+        directory: Directory.Cache,
+        path: fileName,
+      });
+      const assetPath = uriResult.uri;
+      console.log("Playing TTS via NativeAudio:", { assetPath });
+
+      await NativeAudio.preload({
+        assetId,
+        assetPath,
+        audioChannelNum: 1,
+        isUrl: true,
+      });
+      await NativeAudio.play({ assetId, time: 0 });
+      // Wait for playback duration before unloading/deleting
+      await new Promise((res) => setTimeout(res, durationMs));
+      await NativeAudio.unload({ assetId });
+      await Filesystem.deleteFile({ directory: Directory.Cache, path: fileName });
+      return;
+    } catch (err) {
+      console.error("Native audio playback failed, falling back to WebView:", err);
+    }
+  }
+
   // Prefer Web Audio (less likely to be blocked by autoplay policies after user gesture)
   try {
     if (!audioCtx) {
@@ -86,8 +130,21 @@ async function playArrayBuffer(buffer: ArrayBuffer, contentType: string) {
   const blob = new Blob([buffer], { type: contentType || "audio/mpeg" });
   const url = URL.createObjectURL(blob);
   const audio = new Audio(url);
-  await audio.play();
+  try {
+    await audio.play();
+  } catch (err) {
+    console.error("HTMLAudio playback failed:", err);
+  }
   URL.revokeObjectURL(url);
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
 }
 
 async function streamToArrayBuffer(stream: ReadableStream<Uint8Array>) {
@@ -227,13 +284,16 @@ async function speakViaSdk(text: string, lang: string) {
 
 export async function elevenSpeak(text: string, lang: string) {
   if (!apiKey) throw new Error("Missing ElevenLabs API key");
+  console.log("[ElevenLabs] speak start", { lang, len: text.length });
   // Try REST (works reliably in browser with CORS), fallback to SDK/play helper.
   try {
     await speakViaRest(text, lang);
+    console.log("[ElevenLabs] speak via REST success");
     return;
   } catch (restErr) {
     console.warn("ElevenLabs REST failed, trying SDK:", restErr);
   }
 
   await speakViaSdk(text, lang);
+  console.log("[ElevenLabs] speak via SDK success");
 }

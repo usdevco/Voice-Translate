@@ -70,6 +70,7 @@ export default function Translator() {
   const speechManager = useRef(new SpeechManager());
   const lastSpokenRef = useRef("");
   const lastSpokenAtRef = useRef(0);
+  const lastFinalTranslationRef = useRef("");
   const translationAbortRef = useRef<AbortController | null>(null);
   const translationRequestId = useRef(0);
   const { toast } = useToast();
@@ -122,9 +123,10 @@ export default function Translator() {
     return `${prefix}${text.split(" ").reverse().join(" ")}`;
   };
 
-  const translateAndMaybeSpeak = async (text: string, speakAfter: boolean) => {
+  const translateAndMaybeSpeak = async (text: string, isFinal: boolean) => {
     if (!text) {
       setTranslatedText("");
+      lastFinalTranslationRef.current = "";
       return;
     }
 
@@ -156,12 +158,32 @@ export default function Translator() {
     const safeTranslation = translated || mockTranslate(text, targetLang);
     setTranslatedText(safeTranslation);
 
-    if (speakAfter && autoSpeak) {
+    if (isFinal && autoSpeak) {
       const now = Date.now();
       const longEnough = safeTranslation.length >= MIN_CHARS_TO_SPEAK;
       const gapOk = now - lastSpokenAtRef.current >= MIN_SPEAK_GAP_MS;
-      if (longEnough && gapOk) {
-        void speechManager.current.speak(safeTranslation, targetLang);
+      const diffWords = (prev: string, curr: string) => {
+        const prevWords = prev.split(/\s+/).filter(Boolean);
+        const currWords = curr.split(/\s+/).filter(Boolean);
+        let i = 0;
+        while (i < prevWords.length && i < currWords.length && prevWords[i] === currWords[i]) {
+          i++;
+        }
+        return currWords.slice(i).join(" ");
+      };
+
+      let toSpeak = safeTranslation;
+      if (continuousMode) {
+        const prev = lastFinalTranslationRef.current;
+        if (prev) {
+          toSpeak = diffWords(prev, safeTranslation).trim();
+        }
+        lastFinalTranslationRef.current = safeTranslation;
+      } else {
+        lastFinalTranslationRef.current = safeTranslation;
+      }
+      if (longEnough && gapOk && toSpeak) {
+        void speechManager.current.speak(toSpeak, targetLang);
         lastSpokenRef.current = safeTranslation;
         lastSpokenAtRef.current = now;
       }
@@ -171,6 +193,7 @@ export default function Translator() {
   useEffect(() => {
     // Update continuous mode setting
     speechManager.current.setContinuous(continuousMode);
+    lastFinalTranslationRef.current = "";
   }, [continuousMode]);
 
   useEffect(() => {
@@ -182,6 +205,7 @@ export default function Translator() {
     if (!sourceText) {
       setTranslatedText("");
       lastSpokenRef.current = "";
+      lastFinalTranslationRef.current = "";
       return;
     }
 
@@ -194,12 +218,14 @@ export default function Translator() {
       speechManager.current.stop();
       setIsListening(false);
       lastSpokenRef.current = "";
+      lastFinalTranslationRef.current = "";
       lastSpokenAtRef.current = 0;
     } else {
       setIsListening(true);
       if (!continuousMode) {
         setSourceText(""); // Clear only if not continuous? Or always clear on new session?
         lastSpokenRef.current = "";
+        lastFinalTranslationRef.current = "";
         lastSpokenAtRef.current = 0;
       }
 
@@ -249,7 +275,8 @@ export default function Translator() {
   };
 
   return (
-    <div className="min-h-screen relative overflow-hidden flex flex-col items-center justify-start pt-8 pb-24 px-4 md:px-0 bg-background text-foreground font-sans">
+    <div className="min-h-screen relative overflow-hidden flex flex-col items-center justify-start pb-24 px-4 md:px-0 bg-background text-foreground font-sans">
+      <div style={{ height: "calc(env(safe-area-inset-top, 0px) + 3.5rem)" }} />
       {/* Background Asset */}
       <div className="absolute inset-0 z-0 opacity-40 pointer-events-none">
         <img src={soundWaveBg} alt="Background" className="w-full h-full object-cover" />

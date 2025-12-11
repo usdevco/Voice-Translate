@@ -153,24 +153,54 @@ export class SpeechManager {
       this.nativeListeners = [];
 
       this.shouldStop = false;
+      let lastText = "";
+      let silenceTimer: any;
+      let finalized = false;
 
-      const partialListener = await NativeSpeech.addListener("partialResult", (event: any) => {
-        const text = Array.isArray(event.matches) ? event.matches.join(" ") : event.value || "";
-        if (!text) return;
-        onResult(text, false);
-      });
-
-      const resultListener = await NativeSpeech.addListener("result", (event: any) => {
-        const text = Array.isArray(event.matches) ? event.matches.join(" ") : event.value || "";
-        if (!text) return;
-        onResult(text, true);
-        if (!this.continuous) {
+      const finalize = (stopNative: boolean = true) => {
+        if (finalized) return;
+        finalized = true;
+        if (silenceTimer) clearTimeout(silenceTimer);
+        if (lastText) {
+          onResult(lastText, true);
+        }
+        if (stopNative) {
           this.stopNative();
           onEnd();
+        } else {
+          // In continuous mode we may want to keep listening but still emit a final
+          lastText = "";
+          finalized = false;
+        }
+      };
+
+      const partialListener = await NativeSpeech.addListener("partialResults", (event: any) => {
+        const text = Array.isArray(event.matches) ? event.matches.join(" ") : event.value || "";
+        if (!text) return;
+        lastText = text;
+        onResult(text, false);
+        if (silenceTimer) clearTimeout(silenceTimer);
+        silenceTimer = setTimeout(() => {
+          // Emit a final even in continuous mode; keep listening if continuous
+          finalize(!this.continuous);
+        }, 1000);
+      });
+
+      // The types only list partialResults/listeningState, but the plugin emits "result" for finals.
+      const resultListener = await (NativeSpeech as any).addListener("result", (event: any) => {
+        const text = Array.isArray(event.matches) ? event.matches.join(" ") : event.value || "";
+        if (!text) return;
+        lastText = text;
+        finalize(!this.continuous);
+      });
+
+      const stateListener = await NativeSpeech.addListener("listeningState", (event: any) => {
+        if (event.status === "stopped") {
+          finalize(true);
         }
       });
 
-      this.nativeListeners.push(partialListener, resultListener);
+      this.nativeListeners.push(partialListener, resultListener, stateListener);
 
       await NativeSpeech.start({
         language: this.currentLang,
@@ -183,6 +213,7 @@ export class SpeechManager {
   }
 
   private async stopNative() {
+    this.shouldStop = true;
     try {
       await NativeSpeech.stop();
     } catch (err) {
